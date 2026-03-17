@@ -249,15 +249,21 @@ function buildContainerArgs(
     if (value) args.push('-e', `${key}=${value}`);
   }
 
-  // Mirror the host's auth method with a placeholder value.
-  // API key mode: SDK sends x-api-key, proxy replaces with real key.
-  // OAuth mode:   SDK exchanges placeholder token for temp API key,
-  //               proxy injects real OAuth token on that exchange request.
-  const authMode = detectAuthMode();
-  if (authMode === 'api-key') {
-    args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+  // Auth mode: check if using AUTH_TOKEN (OpenRouter) or API_KEY (direct Anthropic)
+  const authEnv = readEnvFile(['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY']);
+  if (authEnv.ANTHROPIC_AUTH_TOKEN) {
+    // OpenRouter mode: AUTH_TOKEN + blank API_KEY (per OpenRouter docs)
+    // Proxy injects real Bearer token; container gets placeholder
+    args.push('-e', 'ANTHROPIC_AUTH_TOKEN=placeholder');
+    args.push('-e', 'ANTHROPIC_API_KEY=');
   } else {
-    args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    // Direct Anthropic mode: API key injected by credential proxy
+    const authMode = detectAuthMode();
+    if (authMode === 'api-key') {
+      args.push('-e', 'ANTHROPIC_API_KEY=placeholder');
+    } else {
+      args.push('-e', 'CLAUDE_CODE_OAUTH_TOKEN=placeholder');
+    }
   }
 
   // Runtime-specific args for host gateway resolution

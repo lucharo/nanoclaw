@@ -363,6 +363,7 @@ async function runQuery(
 
   let newSessionId: string | undefined;
   let lastAssistantUuid: string | undefined;
+  let lastAssistantText: string | null = null;
   let messageCount = 0;
   let resultCount = 0;
 
@@ -435,6 +436,15 @@ async function runQuery(
 
     if (message.type === 'assistant' && 'uuid' in message) {
       lastAssistantUuid = (message as { uuid: string }).uuid;
+      // Capture assistant text for models that return empty result fields
+      // (e.g. GLM-5 wraps everything in thinking blocks)
+      const msg = message as { message?: { content?: Array<{ type: string; text?: string }> } };
+      const textParts = msg.message?.content
+        ?.filter((c) => c.type === 'text' && c.text)
+        .map((c) => c.text!) || [];
+      if (textParts.length > 0) {
+        lastAssistantText = textParts.join('');
+      }
     }
 
     if (message.type === 'system' && message.subtype === 'init') {
@@ -450,12 +460,16 @@ async function runQuery(
     if (message.type === 'result') {
       resultCount++;
       const textResult = 'result' in message ? (message as { result?: string }).result : null;
-      log(`Result #${resultCount}: subtype=${message.subtype}${textResult ? ` text=${textResult.slice(0, 200)}` : ''}`);
+      // Fallback: use last assistant text when result is empty
+      // (some models like GLM-5 return thinking blocks only)
+      const finalText = textResult || lastAssistantText || null;
+      log(`Result #${resultCount}: subtype=${message.subtype}${finalText ? ` text=${finalText.slice(0, 200)}` : ''}`);
       writeOutput({
         status: 'success',
-        result: textResult || null,
+        result: finalText,
         newSessionId
       });
+      lastAssistantText = null;
     }
   }
 
