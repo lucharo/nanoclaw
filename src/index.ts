@@ -332,6 +332,56 @@ async function runAgent(
     }
 
     if (output.status === 'error') {
+      // Auto-heal corrupted sessions: if the error is a thinking block
+      // signature mismatch (from cross-model session resume), clear the
+      // session and retry once with a fresh conversation.
+      const isThinkingBlockError =
+        output.error &&
+        (output.error.includes('Invalid `signature` in `thinking` block') ||
+          output.error.includes('Invalid `data` in `redacted_thinking` block'));
+
+      if (isThinkingBlockError && sessionId) {
+        logger.warn(
+          { group: group.name },
+          'Thinking block signature error detected, clearing session and retrying',
+        );
+        delete sessions[group.folder];
+        setSession(group.folder, '');
+
+        // Retry once with no session (fresh conversation)
+        try {
+          const retryOutput = await runContainerAgent(
+            group,
+            {
+              prompt,
+              sessionId: undefined,
+              groupFolder: group.folder,
+              chatJid,
+              isMain,
+              assistantName: ASSISTANT_NAME,
+            },
+            (proc, containerName) =>
+              queue.registerProcess(chatJid, proc, containerName, group.folder),
+            wrappedOnOutput,
+          );
+          if (retryOutput.newSessionId) {
+            sessions[group.folder] = retryOutput.newSessionId;
+            setSession(group.folder, retryOutput.newSessionId);
+          }
+          if (retryOutput.status === 'error') {
+            logger.error(
+              { group: group.name, error: retryOutput.error },
+              'Container agent error on retry after session reset',
+            );
+            return 'error';
+          }
+          return 'success';
+        } catch (retryErr) {
+          logger.error({ group: group.name, err: retryErr }, 'Agent retry error');
+          return 'error';
+        }
+      }
+
       logger.error(
         { group: group.name, error: output.error },
         'Container agent error',
