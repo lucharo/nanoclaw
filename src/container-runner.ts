@@ -26,6 +26,7 @@ import {
   stopContainer,
 } from './container-runtime.js';
 import { detectAuthMode } from './credential-proxy.js';
+import { readEnvFile } from './env.js';
 import { validateAdditionalMounts } from './mount-security.js';
 import { RegisteredGroup } from './types.js';
 
@@ -199,6 +200,16 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Mount gws credentials read-only if available (Google Workspace CLI)
+  const gwsCredsPath = path.join(DATA_DIR, 'gws-credentials.json');
+  if (fs.existsSync(gwsCredsPath)) {
+    mounts.push({
+      hostPath: gwsCredsPath,
+      containerPath: '/home/node/.config/gws/credentials.json',
+      readonly: true,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -226,6 +237,17 @@ function buildContainerArgs(
     '-e',
     `ANTHROPIC_BASE_URL=http://${CONTAINER_HOST_GATEWAY}:${CREDENTIAL_PROXY_PORT}`,
   );
+
+  // Pass model overrides if configured (OpenRouter model IDs)
+  const modelEnv = readEnvFile([
+    'ANTHROPIC_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  ]);
+  for (const [key, value] of Object.entries(modelEnv)) {
+    if (value) args.push('-e', `${key}=${value}`);
+  }
 
   // Mirror the host's auth method with a placeholder value.
   // API key mode: SDK sends x-api-key, proxy replaces with real key.

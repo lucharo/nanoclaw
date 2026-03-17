@@ -44,6 +44,10 @@ export function startCredentialProxy(
   const isHttps = upstreamUrl.protocol === 'https:';
   const makeRequest = isHttps ? httpsRequest : httpRequest;
 
+  // Upstream path prefix (e.g. "/api/v1" for OpenRouter) — prepended to
+  // every request path so the proxy works with non-root API base URLs.
+  const upstreamPathPrefix = upstreamUrl.pathname.replace(/\/+$/, '');
+
   return new Promise((resolve, reject) => {
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
@@ -63,9 +67,14 @@ export function startCredentialProxy(
         delete headers['transfer-encoding'];
 
         if (authMode === 'api-key') {
-          // API key mode: inject x-api-key on every request
+          // API key mode: inject credentials on every request.
+          // Non-Anthropic upstreams (e.g. OpenRouter) use Authorization: Bearer
+          // instead of x-api-key, so inject both headers — each provider
+          // reads the one it understands and ignores the other.
           delete headers['x-api-key'];
+          delete headers['authorization'];
           headers['x-api-key'] = secrets.ANTHROPIC_API_KEY;
+          headers['authorization'] = `Bearer ${secrets.ANTHROPIC_API_KEY}`;
         } else {
           // OAuth mode: replace placeholder Bearer token with the real one
           // only when the container actually sends an Authorization header
@@ -83,7 +92,7 @@ export function startCredentialProxy(
           {
             hostname: upstreamUrl.hostname,
             port: upstreamUrl.port || (isHttps ? 443 : 80),
-            path: req.url,
+            path: upstreamPathPrefix + req.url,
             method: req.method,
             headers,
           } as RequestOptions,
