@@ -450,9 +450,7 @@ async function runQuery(
       const toolUses = msg.message?.content?.filter((c) => c.type === 'tool_use') || [];
       for (const tool of toolUses) {
         const entry = { ts: new Date().toISOString(), tool: tool.name, input: tool.input };
-        try {
-          fs.appendFileSync(TOOL_LOG_PATH, JSON.stringify(entry) + '\n');
-        } catch { /* ignore write errors */ }
+        fs.promises.appendFile(TOOL_LOG_PATH, JSON.stringify(entry) + '\n').catch(() => {});
       }
     }
 
