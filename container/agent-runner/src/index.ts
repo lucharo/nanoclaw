@@ -57,6 +57,7 @@ interface SDKUserMessage {
 const IPC_INPUT_DIR = '/workspace/ipc/input';
 const IPC_INPUT_CLOSE_SENTINEL = path.join(IPC_INPUT_DIR, '_close');
 const IPC_POLL_MS = 500;
+const TOOL_LOG_PATH = '/workspace/group/tool-calls.jsonl';
 
 /**
  * Push-based async iterable for streaming user messages to the SDK.
@@ -438,12 +439,20 @@ async function runQuery(
       lastAssistantUuid = (message as { uuid: string }).uuid;
       // Capture assistant text for models that return empty result fields
       // (e.g. GLM-5 wraps everything in thinking blocks)
-      const msg = message as { message?: { content?: Array<{ type: string; text?: string }> } };
+      const msg = message as { message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> } };
       const textParts = msg.message?.content
         ?.filter((c) => c.type === 'text' && c.text)
         .map((c) => c.text!) || [];
       if (textParts.length > 0) {
         lastAssistantText = textParts.join('');
+      }
+      // Log tool calls to JSONL for dashboard visibility
+      const toolUses = msg.message?.content?.filter((c) => c.type === 'tool_use') || [];
+      for (const tool of toolUses) {
+        const entry = { ts: new Date().toISOString(), tool: tool.name, input: tool.input };
+        try {
+          fs.appendFileSync(TOOL_LOG_PATH, JSON.stringify(entry) + '\n');
+        } catch { /* ignore write errors */ }
       }
     }
 
